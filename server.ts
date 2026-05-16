@@ -13,6 +13,7 @@ const TOKEN_LIMIT = 1500000;
 
 async function startServer() {
   const app = express();
+  app.set('trust proxy', 1);
   const PORT = 3000;
 
   // Use memory storage for multer (handling up to 50MB audio chunks)
@@ -111,7 +112,8 @@ async function startServer() {
            const id = Date.now().toString() + '-' + Math.random().toString(36).substring(7);
            const base64Data = note.screenshot.replace(/^data:image\/png;base64,/, "");
            imageCache.set(id, Buffer.from(base64Data, 'base64'));
-           const imageUrl = `${req.protocol}://${req.get('host')}/api/images/${id}`;
+           const baseUrl = process.env.APP_URL ? process.env.APP_URL.replace(/\/$/, '') : `${req.protocol}://${req.get('host')}`;
+           const imageUrl = `${baseUrl}/api/images/${id}`;
            
            blocks.push({
              object: 'block',

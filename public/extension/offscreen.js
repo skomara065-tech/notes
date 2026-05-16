@@ -10,42 +10,53 @@ let overlapMs = 500;
 let loopTimeout = null;
 let overlapTimeout = null;
 
-chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'startOffscreenRecording') {
-    backendUrl = request.config.backendUrl;
-    let dur = parseInt(request.config.chunkDuration);
-    if (dur > 0) chunkDurationMs = dur * 1000;
-
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          mandatory: {
-            chromeMediaSource: 'tab',
-            chromeMediaSourceId: request.streamId,
-          }
-        }
-      });
-
-      audioCtx = new AudioContext();
-      const source = audioCtx.createMediaStreamSource(stream);
-      source.connect(audioCtx.destination); 
-
-      isRecordingOffscreen = true;
-      startRollingLoop();
-    } catch (e) {
-      console.error('Offscreen recording error:', e);
-    }
+    handleStartOffscreen(request);
   } else if (request.action === 'stopOffscreenRecording') {
-    isRecordingOffscreen = false;
-    clearTimeout(loopTimeout);
-    clearTimeout(overlapTimeout);
-    
-    if (recorderA && recorderA.state !== 'inactive') recorderA.stop();
-    if (recorderB && recorderB.state !== 'inactive') recorderB.stop();
-    if (stream) stream.getTracks().forEach(track => track.stop());
-    if (audioCtx) audioCtx.close();
+    handleStopOffscreen();
   }
+  return false;
 });
+
+async function handleStartOffscreen(request) {
+  backendUrl = request.config.backendUrl;
+  let dur = parseInt(request.config.chunkDuration);
+  if (dur > 0) chunkDurationMs = dur * 1000;
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        mandatory: {
+          chromeMediaSource: 'tab',
+          chromeMediaSourceId: request.streamId,
+        }
+      }
+    });
+
+    audioCtx = new AudioContext();
+    const source = audioCtx.createMediaStreamSource(stream);
+    source.connect(audioCtx.destination); 
+
+    isRecordingOffscreen = true;
+    startRollingLoop();
+  } catch (e) {
+    console.error('Offscreen recording error:', e);
+  }
+}
+
+function handleStopOffscreen() {
+  isRecordingOffscreen = false;
+  clearTimeout(loopTimeout);
+  clearTimeout(overlapTimeout);
+  
+  if (recorderA && recorderA.state !== 'inactive') recorderA.stop();
+  if (recorderB && recorderB.state !== 'inactive') recorderB.stop();
+  if (stream) stream.getTracks().forEach(track => track.stop());
+  if (audioCtx) audioCtx.close();
+  
+  window.close();
+}
 
 function createRecorder(label) {
   const options = { mimeType: 'audio/webm;codecs=opus' };

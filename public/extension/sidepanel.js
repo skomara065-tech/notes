@@ -77,13 +77,23 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     if (!config.backendUrl) return alert("Configure Backend URL in Settings.");
     chrome.runtime.sendMessage({ action: 'startRecording', config }, (res) => {
+      if (chrome.runtime.lastError) {
+        console.error("Start recording error:", chrome.runtime.lastError.message);
+        alert("Error starting: " + chrome.runtime.lastError.message);
+        return;
+      }
       if (res && res.status === 'started') updateUI(true);
       else alert("Error: " + (res && res.message));
     });
   });
 
   btnStop.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ action: 'stopRecording' }, () => updateUI(false));
+    chrome.runtime.sendMessage({ action: 'stopRecording' }, () => {
+      if (chrome.runtime.lastError) {
+        console.error("Stop recording error:", chrome.runtime.lastError.message);
+      }
+      updateUI(false);
+    });
   });
 
   function updateUI(isRecording) {
@@ -98,6 +108,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   btnCapture.addEventListener('click', () => {
     chrome.runtime.sendMessage({ action: 'captureScreenshot' }, (res) => {
+      if (chrome.runtime.lastError) {
+        console.error("Screenshot error:", chrome.runtime.lastError.message);
+        return;
+      }
       if (res && res.dataUrl) {
         pendingScreenshot = res.dataUrl;
         btnCapture.classList.add('ring-2', 'ring-indigo-500', 'bg-indigo-50');
