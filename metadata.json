@@ -1,0 +1,8 @@
+{
+  "name": "Note Taker AI",
+  "description": "A Chrome extension backend and dashboard that uses Gemini AI to listen to Udemy/YouTube lectures and saves notes to Notion.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

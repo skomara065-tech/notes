@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Lecture Note Taker AI",
+  "version": "1.0",
+  "description": "Uses AI to listen to Udemy and YouTube lectures to make notes and save them in Notion.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "offscreen",
+    "tabCapture",
+    "notifications"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "host_permissions": [
+    "*://*/*"
+  ]
+}
