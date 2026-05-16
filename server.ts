@@ -6,6 +6,11 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { Client as NotionClient } from '@notionhq/client';
 
+// Simple in-memory cache for images
+const imageCache = new Map<string, Buffer>();
+let dailyTokenUsage = 0;
+const TOKEN_LIMIT = 1500000;
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -17,21 +22,34 @@ async function startServer() {
   });
 
   app.use(cors());
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-  // API Route to process audio and save to Notion
+  app.get('/api/token-usage', (req, res) => {
+    res.json({
+        used: dailyTokenUsage,
+        limit: TOKEN_LIMIT,
+        percentRemaining: Math.max(0, 100 - (dailyTokenUsage / TOKEN_LIMIT * 100))
+    });
+  });
+
+  app.get('/api/images/:id', (req, res) => {
+    const img = imageCache.get(req.params.id);
+    if (img) {
+      res.setHeader('Content-Type', 'image/png');
+      res.send(img);
+    } else {
+      res.status(404).end();
+    }
+  });
+
+  // API Route to process audio and summarize
   app.post('/api/process-audio', upload.single('audio'), async (req, res) => {
     try {
-      const { notionApiKey, notionPageId, instruction } = req.body;
       const audioFile = req.file;
 
       if (!audioFile) {
         return res.status(400).json({ error: 'No audio file provided' });
-      }
-
-      if (!notionApiKey || !notionPageId) {
-        return res.status(400).json({ error: 'Notion API Key and Page ID are required' });
       }
 
       const geminiApiKey = process.env.GEMINI_API_KEY;
@@ -41,9 +59,6 @@ async function startServer() {
 
       const ai = new GoogleGenAI({ apiKey: geminiApiKey, httpOptions: { headers: { 'User-Agent': 'aistudio-build' } } });
 
-      console.log(`Received audio file: ${audioFile.size} bytes, type: ${audioFile.mimetype}`);
-
-      // 1. Send Audio to Gemini for Transcription & Summarization
       const audioPart = {
         inlineData: {
           mimeType: audioFile.mimetype,
@@ -51,22 +66,19 @@ async function startServer() {
         }
       };
 
-      const prompt = `You are a helpful study assistant. Listen to this lecture segment and create detailed, structured notes. 
-Focus on:
-1. Key concepts and definitions
-2. Important examples or analogies
-3. Actionable takeaways or summary points
-${instruction ? `\nAdditional user instructions: ${instruction}` : ''}
-
-Format the response cleanly without markdown code block wrappers so it can be easily adapted to Notion block format. Provide clear headings, bullet points, and paragraphs.`;
+      const prompt = `You are a helpful study assistant. Listen to this lecture segment and create detailed, structured notes. Focus on Key concepts and definitions, important examples. Format the response cleanly without markdown wrappers so it's ready for block layout. Provide clear paragraphs.`;
 
       const geminiResponse = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-preview',
+        model: 'gemini-3.1-flash',
         contents: [audioPart, prompt],
         config: {
           temperature: 0.2, // Low temperature for factual notes
         }
       });
+
+      if (geminiResponse.usageMetadata?.totalTokenCount) {
+         dailyTokenUsage += geminiResponse.usageMetadata.totalTokenCount;
+      }
 
       const summaryText = geminiResponse.text;
 
@@ -74,49 +86,74 @@ Format the response cleanly without markdown code block wrappers so it can be ea
         return res.status(500).json({ error: 'Gemini returned an empty summary' });
       }
 
-      // 2. Push to Notion Page using the provided credentials
-      const notion = new NotionClient({ auth: notionApiKey });
-      
-      // We will append it to the page as simple text blocks for resilience
-      // Split the text into paragraphs to create an array of paragraph blocks
-      const paragraphs = summaryText.split('\n\n').filter(p => p.trim() !== '');
-      
-      const blocks = paragraphs.map(p => ({
-        object: 'block',
-        type: 'paragraph',
-        paragraph: {
-          rich_text: [
-            {
-              type: 'text',
-              text: { content: p.substring(0, 2000) } // Notion has a 2000 char limit per rich text object
-            }
-          ]
-        }
-      }));
-
-      // Add a timestamp / separator block at the top
-      const timestampBlock = {
-        object: 'block',
-        type: 'heading_3',
-        heading_3: {
-          rich_text: [
-            {
-              type: 'text',
-              text: { content: `Lecture Notes - ${new Date().toLocaleString()}` }
-            }
-          ]
-        }
-      };
-
-      await notion.blocks.children.append({
-        block_id: notionPageId,
-        children: [timestampBlock as any, ...blocks] as any
-      });
-
       res.status(200).json({ success: true, summary: summaryText });
     } catch (error: any) {
       console.error('Error processing audio:', error);
       res.status(500).json({ error: error.message || 'Internal Server Error' });
+    }
+  });
+
+  // API Route to save notes to Notion
+  app.post('/api/save-notes', async (req, res) => {
+    try {
+      const { notionApiKey, notionPageId, notes } = req.body;
+      if (!notionApiKey || !notionPageId || !notes || !Array.isArray(notes)) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+
+      const notion = new NotionClient({ auth: notionApiKey });
+      
+      for (const note of notes) {
+        const blocks: any[] = [];
+        
+        // Process screenshot if exists
+        if (note.screenshot) {
+           const id = Date.now().toString() + '-' + Math.random().toString(36).substring(7);
+           const base64Data = note.screenshot.replace(/^data:image\/png;base64,/, "");
+           imageCache.set(id, Buffer.from(base64Data, 'base64'));
+           const imageUrl = `${req.protocol}://${req.get('host')}/api/images/${id}`;
+           
+           blocks.push({
+             object: 'block',
+             type: 'image',
+             image: {
+               type: 'external',
+               external: { url: imageUrl }
+             }
+           });
+        }
+        
+        // Process textual notes
+        if (note.text) {
+          const paragraphs = note.text.split('\n\n').filter((p: string) => p.trim() !== '');
+          for (const p of paragraphs) {
+            blocks.push({
+              object: 'block',
+              type: 'paragraph',
+              paragraph: {
+                rich_text: [
+                  {
+                    type: 'text',
+                    text: { content: p.substring(0, 2000) }
+                  }
+                ]
+              }
+            });
+          }
+        }
+        
+        if (blocks.length > 0) {
+          await notion.blocks.children.append({
+            block_id: notionPageId,
+            children: blocks
+          });
+        }
+      }
+      
+      res.status(200).json({ success: true });
+    } catch(err: any) {
+      console.error('Error saving to Notion:', err);
+      res.status(500).json({ error: err.message || 'Error saving to Notion' });
     }
   });
 

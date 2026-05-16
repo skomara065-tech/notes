@@ -13,8 +13,8 @@ export default function App() {
         'background.js',
         'offscreen.html',
         'offscreen.js',
-        'popup.html',
-        'popup.js'
+        'sidepanel.html',
+        'sidepanel.js'
       ];
       
       const promises = files.map(async (filename) => {

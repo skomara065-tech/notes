@@ -1,5 +1,7 @@
 let isRecording = false;
 
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionIconClick: true });
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'startRecording') {
     startRecording(request.config).then(() => sendResponse({ status: 'started' })).catch(e => sendResponse({ status: 'error', message: e.message }));
@@ -9,6 +11,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   } else if (request.action === 'getStatus') {
     sendResponse({ isRecording });
+  } else if (request.action === 'captureScreenshot') {
+    chrome.tabs.captureVisibleTab(null, { format: 'png' }, (dataUrl) => {
+      sendResponse({ dataUrl });
+    });
+    return true;
   }
 });
 
@@ -28,6 +35,7 @@ async function startRecording(config) {
         resolve(id);
       }
     });
+
   });
 
   // Setup offscreen document
