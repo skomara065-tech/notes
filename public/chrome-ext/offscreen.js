@@ -11,14 +11,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'startRecording') {
     backendUrl = message.backendUrl;
-    startCapture(message.streamId);
+    startCapture(message.streamId, message.chunkDuration);
   } else if (message.action === 'stopRecording') {
     stopCapture();
   }
 });
 
 // Initialize audio context stream capture
-function startCapture(streamId) {
+function startCapture(streamId, chunkDuration) {
   navigator.mediaDevices.getUserMedia({
     audio: {
       mandatory: {
@@ -39,18 +39,19 @@ function startCapture(streamId) {
 
     mediaRecorder.ondataavailable = (event) => {
       if (event.data.size > 0) {
-        audioChunks.push(event.data);
+        const audioBlob = new Blob([event.data], { type: 'audio/webm' });
+        // Execute the async network pipeline immediately
+        sendAudioToBackend(audioBlob);
       }
     };
 
     mediaRecorder.onstop = () => {
-      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-      // Execute the async network pipeline
-      sendAudioToBackend(audioBlob);
+        // Nothing needed here, data handled in ondataavailable
     };
 
     // Begin data chunk acquisition slice loops
-    mediaRecorder.start();
+    const timeSlice = chunkDuration ? parseInt(chunkDuration) * 1000 : 15000;
+    mediaRecorder.start(timeSlice);
   }).catch((err) => {
     console.error('Failed to capture tab audio:', err);
   });

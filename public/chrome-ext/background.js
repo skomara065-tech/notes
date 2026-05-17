@@ -154,7 +154,8 @@ async function handleStartRecording(config) {
     target: 'offscreen',
     action: 'startRecording',
     streamId: streamId,
-    backendUrl: config.backendUrl
+    backendUrl: config.backendUrl,
+    chunkDuration: config.chunkDuration
   });
 
   isRecording = true;

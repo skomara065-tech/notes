@@ -85,6 +85,7 @@ async function startServer() {
     if (img) {
       res.setHeader('Content-Type', 'image/png');
       res.send(img);
+      setTimeout(() => imageCache.delete(req.params.id), 60000);
     } else {
       res.status(404).end();
     }
@@ -100,8 +101,8 @@ async function startServer() {
           return res.status(400).json({ error: 'No audio file provided' });
         }
 
-        // Hardcode your key directly here to eliminate environment variable matching issues
-const geminiApiKey = "AIzaSyDALuawpzFP7Gi7s2GIFohoygN3OS9t4Ps"; 
+        // Use environment variable for GEMINI_API_KEY
+const geminiApiKey = process.env.GEMINI_API_KEY;
 
 if (!geminiApiKey) {
   return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server' });
