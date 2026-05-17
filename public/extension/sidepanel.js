@@ -62,7 +62,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const url = backendUrlInput.value.trim();
     if (!url) return;
     try {
-      const res = await fetch(`${url}/api/token-usage`);
+      const res = await fetch(`${url}/api/token-usage`, {
+        headers: {
+          'Bypass-Tunnel-Reminder': 'true'
+        }
+      });
       const data = await res.json();
       const pct = Math.round(data.percentRemaining);
       tokenText.textContent = pct;

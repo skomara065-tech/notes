@@ -151,9 +151,10 @@ async function handleStartRecording(config) {
   }
 
   await chrome.runtime.sendMessage({
-    action: 'startOffscreenRecording',
+    target: 'offscreen',
+    action: 'startRecording',
     streamId: streamId,
-    config: config
+    backendUrl: config.backendUrl
   });
 
   isRecording = true;
@@ -164,7 +165,7 @@ async function handleStopRecording() {
   if (!isRecording) return;
 
   try {
-    await chrome.runtime.sendMessage({ action: 'stopOffscreenRecording' });
+    await chrome.runtime.sendMessage({ target: 'offscreen', action: 'stopRecording' });
   } catch (e) {
     console.warn('Offscreen doc already closed:', e.message);
   }

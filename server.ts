@@ -96,10 +96,12 @@ async function startServer() {
           return res.status(400).json({ error: 'No audio file provided' });
         }
 
-        const geminiApiKey = process.env.GEMINI_API_KEY;
-        if (!geminiApiKey) {
-          return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server' });
-        }
+        // Hardcode your key directly here to eliminate environment variable matching issues
+const geminiApiKey = "AIzaSyDALuawpzFP7Gi7s2GIFohoygN3OS9t4Ps"; 
+
+if (!geminiApiKey) {
+  return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server' });
+}
 
         const ai = new GoogleGenAI({ apiKey: geminiApiKey, httpOptions: { headers: { 'User-Agent': 'aistudio-build' } } });
 
