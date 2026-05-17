@@ -341,6 +341,17 @@ export default function App() {
                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Notion API Key</label>
                           <input type="password" placeholder="secret_..." className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                         </div>
+                        
+                        <div className="mt-4 p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-medium text-slate-600">
+                          <div className="font-bold text-slate-700 uppercase tracking-wider mb-2 text-[10px]">Connection Checkboxes</div>
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center gap-2"><input type="checkbox" id="chkServer" disabled /> <span>Backend Server Online</span></div>
+                            <div className="flex items-center gap-2"><input type="checkbox" id="chkTunnel" disabled /> <span>Localtunnel Proxy Active</span></div>
+                            <div className="flex items-center gap-2"><input type="checkbox" id="chkCapture" disabled /> <span>Audio Capture Active</span></div>
+                            <div className="flex items-center gap-2"><input type="checkbox" id="chkDispatch" disabled /> <span>Audio Payload Sent</span></div>
+                            <div className="flex items-center gap-2"><input type="checkbox" id="chkGemini" disabled /> <span>Gemini AI Processed</span></div>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>

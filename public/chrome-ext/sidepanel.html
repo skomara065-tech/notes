@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="tailwind.css">
+  <style>
+    body { width: 360px; height: 100vh; overflow: hidden; background: #f8fafc; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; text-size-adjust: none;}
+    .meter-svg { transform: rotate(-90deg); transform-origin: 50% 50%; }
+    
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+    .typewriter-cursor {
+      display: inline-block;
+      color: #6366f1;
+      animation: blink 0.7s step-end infinite;
+      font-weight: bold;
+      margin-left: 1px;
+    }
+    .note-text {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-12px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    .note-card {
+      animation: slideIn 0.3s ease-out forwards;
+    }
+  </style>
+</head>
+<body class="text-xs">
+  <div class="px-4 py-4 bg-white border-b border-slate-200 shrink-0">
+    <div class="mb-4">
+      <label class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Notion Page ID</label>
+      <div class="relative">
+        <input type="text" id="notionPageId" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500" placeholder="32-char Notion ID...">
+        <span id="pageIdStatus" class="absolute right-3 top-2 text-xs"></span>
+      </div>
+    </div>
+    
+    <div class="flex items-center gap-3 mb-5">
+      <svg class="meter-svg -ml-1" width="40" height="40" viewBox="0 0 36 36">
+        <path class="text-slate-100" stroke-width="4" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+        <path id="tokenArc" class="text-green-500 transition-all duration-700" stroke-width="4" stroke-dasharray="100, 100" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+      </svg>
+      <div class="flex flex-col">
+        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Gemini API Quota</span>
+        <span class="text-xs font-bold text-slate-800 leading-none"><span id="tokenText">100</span>% <span class="font-medium text-slate-500">Free Tier</span></span>
+      </div>
+    </div>
+
+    <div class="mb-4">
+      <label class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Record Interval</label>
+      <div class="flex bg-slate-100 p-1 rounded-lg gap-1 border border-slate-200">
+        <button class="chunk-btn flex-1 py-1.5 rounded-md bg-white shadow-sm font-semibold text-slate-800 transition" data-val="15">15s</button>
+        <button class="chunk-btn flex-1 py-1.5 rounded-md text-slate-500 hover:text-slate-700 font-medium transition" data-val="30">30s</button>
+        <button class="chunk-btn flex-1 py-1.5 rounded-md text-slate-500 hover:text-slate-700 font-medium transition" data-val="60">1m</button>
+        <button class="chunk-btn flex-1 py-1.5 rounded-md text-slate-500 hover:text-slate-700 font-medium transition" data-val="120">2m</button>
+      </div>
+    </div>
+
+    <div class="flex gap-2 h-10">
+      <button id="btnStart" class="flex-1 bg-indigo-600 text-white rounded-lg font-semibold shadow-sm hover:bg-indigo-700 transition tracking-wide text-sm flex items-center justify-center gap-2">
+        <span class="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span> Start Listening
+      </button>
+      <button id="btnStop" class="flex-1 bg-red-600 text-white rounded-lg font-semibold shadow-sm hover:bg-red-700 transition tracking-wide text-sm hidden">Stop Listening</button>
+      <button id="btnCapture" class="w-12 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-lg transition flex items-center justify-center" title="Capture Screenshot">📸</button>
+    </div>
+  </div>
+
+  <div class="flex-1 overflow-y-auto bg-slate-50 p-4 space-y-3" id="notesList"></div>
+
+  <div class="p-4 bg-white border-t border-slate-200 shrink-0 space-y-3">
+    <button id="btnSaveAll" class="w-full bg-slate-900 text-white rounded-lg py-2.5 font-semibold shadow-sm hover:bg-slate-800 transition tracking-wide text-sm">Save All to Notion</button>
+    <details class="group border border-slate-200 rounded-lg overflow-hidden">
+      <summary class="font-medium cursor-pointer py-2 px-3 bg-slate-50 hover:bg-slate-100 transition list-none flex justify-between items-center text-slate-600">
+        <span class="flex items-center gap-2">⚙ Settings</span>
+        <span class="group-open:rotate-180 transition-transform text-[10px]">▼</span>
+      </summary>
+      <div class="p-3 border-t border-slate-200 space-y-3 bg-white">
+        <div>
+          <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Backend URL</label>
+          <input type="text" id="backendUrl" class="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 focus:ring-1 focus:ring-indigo-500">
+        </div>
+        <div>
+          <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Notion API Key</label>
+          <input type="password" id="notionApiKey" class="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 focus:ring-1 focus:ring-indigo-500">
+        </div>
+        
+        <div class="mt-4 p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-medium text-slate-600">
+          <div class="font-bold text-slate-700 uppercase tracking-wider mb-2 text-[10px]">Connection Checkboxes</div>
+          <div class="flex flex-col gap-1.5">
+            <div class="flex items-center gap-2"><input type="checkbox" id="chkServer" disabled /> <span>Backend Server Online</span></div>
+            <div class="flex items-center gap-2"><input type="checkbox" id="chkTunnel" disabled /> <span>Localtunnel Proxy Active</span></div>
+            <div class="flex items-center gap-2"><input type="checkbox" id="chkCapture" disabled /> <span>Audio Capture Active</span></div>
+            <div class="flex items-center gap-2"><input type="checkbox" id="chkDispatch" disabled /> <span>Audio Payload Sent</span></div>
+            <div class="flex items-center gap-2"><input type="checkbox" id="chkGemini" disabled /> <span>Gemini AI Processed</span></div>
+          </div>
+        </div>
+
+      </div>
+    </details>
+  </div>
+  <script src="sidepanel.js"></script>
+</body>
+</html>
