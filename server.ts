@@ -63,7 +63,11 @@ async function startServer() {
     limits: { fileSize: 50 * 1024 * 1024 }
   });
 
-  app.use(cors());
+  app.use(cors({
+    origin: '*', // Allows your chrome-extension:// origin to connect safely
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Bypass-Tunnel-Reminder']
+  }));
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 

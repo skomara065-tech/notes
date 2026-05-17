@@ -14,11 +14,12 @@ export default function App() {
         'offscreen.html',
         'offscreen.js',
         'sidepanel.html',
-        'sidepanel.js'
+        'sidepanel.js',
+        'tailwind.css'
       ];
       
       const promises = files.map(async (filename) => {
-        const response = await fetch(`/extension/${filename}`);
+        const response = await fetch(`/chrome-ext/${filename}`);
         if (!response.ok) throw new Error(`Failed to fetch ${filename}`);
         const content = await response.text();
         zip.file(filename, content);
