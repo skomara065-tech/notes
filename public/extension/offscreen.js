@@ -107,7 +107,27 @@ async function sendAudioToBackend(audioBlob) {
       body: formData
     });
 
-    if (!response.ok) throw new Error(`Server returned ${response.status}`);
+    // Handle rate limit response
+    if (response.status === 429) {
+      const data = await response.json();
+      console.warn('Rate limited:', data.error);
+      // Notify sidebar of rate limit
+      chrome.runtime.sendMessage({ 
+        action: 'newNotePreview', 
+        summary: '⏳ Rate limit reached — waiting 60 seconds before processing next chunk...' 
+      });
+      return;
+    }
+
+    if (!response.ok) {
+       let errorText = `Server returned ${response.status}`;
+       try {
+         const errJson = await response.json();
+         if (errJson.error) errorText = errJson.error;
+       } catch (e) {}
+       console.error(errorText);
+       return;
+    }
     
     const data = await response.json();
     if (data.success && data.summary) {

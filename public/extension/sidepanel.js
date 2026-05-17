@@ -2,6 +2,9 @@ let notes = [];
 let pendingScreenshot = null;
 let chunkDuration = '15';
 
+// Connect to background for persistent message channel
+const port = chrome.runtime.connect({ name: 'sidepanel' });
+
 document.addEventListener('DOMContentLoaded', () => {
   const pageIdInput = document.getElementById('notionPageId');
   const pageIdStatus = document.getElementById('pageIdStatus');
@@ -119,26 +122,83 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  chrome.runtime.onMessage.addListener((req) => {
+  function showToast(message, type = 'warning') {
+    const colors = {
+      warning: { bg: '#fefce8', border: '#fde047', text: '#854d0e' },
+      error:   { bg: '#fef2f2', border: '#fca5a5', text: '#991b1b' },
+      success: { bg: '#f0fdf4', border: '#86efac', text: '#166534' }
+    };
+    const c = colors[type] || colors.warning;
+    
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+      position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+      background: ${c.bg}; border: 1px solid ${c.border}; color: ${c.text};
+      padding: 10px 16px; border-radius: 8px; font-size: 11px; font-weight: 600;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 9999;
+      animation: slideIn 0.3s ease-out;
+      max-width: 300px; text-align: center;
+    `;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 5000);
+  }
+
+  port.onMessage.addListener((req) => {
     if (req.action === 'newNotePreview') {
-      notes.unshift({
-        id: Date.now(),
-        text: req.summary,
-        screenshot: pendingScreenshot,
-        saved: false,
-        time: new Date().toLocaleTimeString()
-      });
-      pendingScreenshot = null;
-      btnCapture.classList.remove('ring-2', 'ring-indigo-500', 'bg-indigo-50');
-      renderNotes();
+      if (req.summary.startsWith('⏳')) {
+        showToast(req.summary, 'warning');
+      } else {
+        addNoteToSidebar(req.summary);
+      }
     }
   });
+
+  function addNoteToSidebar(summary) {
+    notes.unshift({
+      id: Date.now(),
+      text: summary,
+      screenshot: pendingScreenshot,
+      saved: false,
+      time: new Date().toLocaleTimeString(),
+      animating: true  // flag for typewriter animation
+    });
+    pendingScreenshot = null;
+    btnCapture.classList.remove('ring-2', 'ring-indigo-500', 'bg-indigo-50');
+    renderNotes();
+  }
+
+  function typewriterAnimate(element, text, speed = 18) {
+    element.textContent = '';
+    
+    // Add blinking cursor span
+    const cursor = document.createElement('span');
+    cursor.className = 'typewriter-cursor';
+    cursor.textContent = '▍';
+    element.appendChild(cursor);
+    
+    let i = 0;
+    const interval = setInterval(() => {
+      if (i < text.length) {
+        // Insert character before cursor
+        element.insertBefore(document.createTextNode(text[i]), cursor);
+        i++;
+        // Auto scroll to bottom of notes list
+        // but if we are unshifting, newest is at the top. Let's scroll to top instead.
+        notesList.scrollTop = 0;
+      } else {
+        clearInterval(interval);
+        cursor.remove(); // Remove cursor when done
+        element.classList.add('line-clamp-3');
+      }
+    }, speed);
+  }
 
   function renderNotes() {
     notesList.innerHTML = '';
     notes.forEach((note) => {
       const div = document.createElement('div');
-      div.className = 'bg-white p-3 rounded-xl border border-slate-200 shadow-sm text-xs relative overflow-hidden transition-all';
+      div.className = 'note-card bg-white p-3 rounded-xl border border-slate-200 shadow-sm text-xs relative overflow-hidden transition-all';
       
       const header = document.createElement('div');
       header.className = 'flex justify-between items-center mb-2';
@@ -166,8 +226,18 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       const content = document.createElement('div');
-      content.className = 'text-slate-700 leading-relaxed line-clamp-3 mb-2 font-medium';
-      content.innerText = note.text;
+      content.className = 'note-text text-slate-700 leading-relaxed font-medium mb-2';
+
+      if (note.animating) {
+        // Start typewriter, mark as done after
+        note.animating = false;
+        typewriterAnimate(content, note.text, 18);
+      } else {
+        content.textContent = note.text;
+        // Apply line clamp only after animation is done
+        content.classList.add('line-clamp-3');
+      }
+      
       div.appendChild(content);
 
       if (note.text.length > 150) {

@@ -9,14 +9,13 @@
     "offscreen",
     "tabCapture",
     "notifications",
-    "sidePanel"
+    "sidePanel",
+    "scripting"
   ],
   "background": {
     "service_worker": "background.js"
   },
-  "action": {
-    "default_title": "Open Note Taker Sidebar"
-  },
+  "action": {},
   "side_panel": {
     "default_path": "sidepanel.html"
   },

@@ -1,60 +1,117 @@
 let isRecording = false;
+let recordingTabId = null;
+let recordingWindowId = null;
 
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionIconClick: true }).catch((error) => console.error(error));
+// Open side panel when extension icon is clicked
+chrome.action.onClicked.addListener((tab) => {
+  chrome.sidePanel.open({ tabId: tab.id }).catch(console.error);
+});
+
+// Track sidepanel port for forwarding messages
+let sidePanelPort = null;
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === 'sidepanel') {
+    sidePanelPort = port;
+    port.onDisconnect.addListener(() => {
+      sidePanelPort = null;
+    });
+  }
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // Forward newNotePreview from offscreen to sidepanel
+  if (request.action === 'newNotePreview') {
+    if (sidePanelPort) {
+      sidePanelPort.postMessage(request);
+    }
+    return false;
+  }
+
   if (request.action === 'startRecording') {
-    handleStartRecording(request.config, sendResponse);
-    return true; // Keep channel open for async response
-  } else if (request.action === 'stopRecording') {
-    handleStopRecording(sendResponse);
-    return true; // Keep channel open for async response
-  } else if (request.action === 'getStatus') {
+    handleStartRecording(request.config)
+      .then(() => sendResponse({ status: 'started' }))
+      .catch(e => sendResponse({ status: 'error', message: e.message }));
+    return true;
+  }
+
+  if (request.action === 'stopRecording') {
+    handleStopRecording()
+      .then(() => sendResponse({ status: 'stopped' }))
+      .catch(e => sendResponse({ status: 'error', message: e.message }));
+    return true;
+  }
+
+  if (request.action === 'getStatus') {
     sendResponse({ isRecording });
     return false;
-  } else if (request.action === 'captureScreenshot') {
-    chrome.tabs.captureVisibleTab(null, { format: 'png' }, (dataUrl) => {
-      if (chrome.runtime.lastError) {
-        sendResponse({ error: chrome.runtime.lastError.message });
-      } else {
-        sendResponse({ dataUrl });
-      }
-    });
+  }
+
+  if (request.action === 'captureScreenshot') {
+    handleScreenshot(sendResponse);
     return true;
   }
 });
 
-async function handleStartRecording(config, sendResponse) {
+// Screenshot fix: inject a content script to draw the video frame to a canvas
+// instead of using captureVisibleTab which conflicts with tabCapture stream
+async function handleScreenshot(sendResponse) {
   try {
-    await startRecording(config);
-    sendResponse({ status: 'started' });
+    if (!recordingTabId) {
+      sendResponse({ error: 'No active recording tab found.' });
+      return;
+    }
+
+    // Inject content script to capture video frame as base64
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: recordingTabId },
+      func: captureVideoFrame,
+    });
+
+    const dataUrl = results?.[0]?.result;
+
+    if (dataUrl) {
+      sendResponse({ dataUrl });
+    } else {
+      // Fallback: try captureVisibleTab on a different window
+      chrome.tabs.captureVisibleTab(
+        recordingWindowId,
+        { format: 'png' },
+        (url) => {
+          if (chrome.runtime.lastError) {
+            sendResponse({ error: chrome.runtime.lastError.message });
+          } else {
+            sendResponse({ dataUrl: url });
+          }
+        }
+      );
+    }
   } catch (e) {
-    sendResponse({ status: 'error', message: e.message });
+    sendResponse({ error: e.message });
   }
 }
 
-async function handleStopRecording(sendResponse) {
+// This function runs IN the tab page context via executeScript
+function captureVideoFrame() {
   try {
-    await stopRecording();
-    sendResponse({ status: 'stopped' });
+    // Find the video element (works for YouTube and Udemy)
+    const video = document.querySelector('video');
+    if (!video) return null;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/png');
   } catch (e) {
-    sendResponse({ status: 'error', message: e.message });
+    return null;
   }
 }
 
-async function startRecording(config) {
-  if (isRecording) return;
-  
-  // We need to capture the current active tab
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tabs || tabs.length === 0) throw new Error("No active tab to capture.");
-  const tab = tabs[0];
-
-  // getMediaStreamId gives us a string to use in getUserMedia within the offscreen document
-  const streamId = await new Promise((resolve, reject) => {
-    chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => {
+function getStreamId(tabId) {
+  return new Promise((resolve, reject) => {
+    chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => {
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message));
       } else {
@@ -62,10 +119,30 @@ async function startRecording(config) {
       }
     });
   });
+}
 
-  // Setup offscreen document
-  const hasOffscreen = await chrome.offscreen.hasDocument();
-  if (!hasOffscreen) {
+async function handleStartRecording(config) {
+  if (isRecording) return;
+
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tabs || tabs.length === 0) {
+    throw new Error('No active tab found.');
+  }
+
+  const tab = tabs[0];
+  recordingTabId = tab.id;
+  recordingWindowId = tab.windowId;
+
+  const streamId = await getStreamId(tab.id);
+
+  let hasDoc = false;
+  try {
+    hasDoc = await chrome.offscreen.hasDocument();
+  } catch (e) {
+    hasDoc = false;
+  }
+
+  if (!hasDoc) {
     await chrome.offscreen.createDocument({
       url: 'offscreen.html',
       reasons: ['USER_MEDIA'],
@@ -73,7 +150,6 @@ async function startRecording(config) {
     });
   }
 
-  // Send message to offscreen document to start recording
   await chrome.runtime.sendMessage({
     action: 'startOffscreenRecording',
     streamId: streamId,
@@ -81,19 +157,20 @@ async function startRecording(config) {
   });
 
   isRecording = true;
-  await chrome.storage.local.set({ isRecording: true });
+  chrome.storage.local.set({ isRecording: true });
 }
 
-async function stopRecording() {
+async function handleStopRecording() {
   if (!isRecording) return;
-  
+
   try {
     await chrome.runtime.sendMessage({ action: 'stopOffscreenRecording' });
   } catch (e) {
-    console.error("Offscreen doc may be closed", e);
+    console.warn('Offscreen doc already closed:', e.message);
   }
-  
-  isRecording = false;
-  await chrome.storage.local.set({ isRecording: false });
-}
 
+  isRecording = false;
+  recordingTabId = null;
+  recordingWindowId = null;
+  chrome.storage.local.set({ isRecording: false });
+}

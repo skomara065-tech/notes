@@ -11,6 +11,47 @@ const imageCache = new Map<string, Buffer>();
 let dailyTokenUsage = 0;
 const TOKEN_LIMIT = 1500000;
 
+const MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite';
+
+// Simple request queue to avoid rate limits
+const audioQueue: Array<() => Promise<void>> = [];
+let isProcessingQueue = false;
+
+async function processQueue() {
+  if (isProcessingQueue) return;
+  isProcessingQueue = true;
+  while (audioQueue.length > 0) {
+    const task = audioQueue.shift();
+    if (task) {
+      await task();
+      // Minimum 4 second gap between requests (15 RPM = 1 per 4s)
+      await new Promise(r => setTimeout(r, 4000));
+    }
+  }
+  isProcessingQueue = false;
+}
+
+async function generateWithRetry(ai: any, params: any, maxRetries = 2): Promise<any> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await ai.models.generateContent(params);
+    } catch (err: any) {
+      const is429 = err?.status === 429 || 
+                    err?.message?.includes('429') || 
+                    err?.message?.includes('RESOURCE_EXHAUSTED');
+      
+      if (is429 && attempt < maxRetries) {
+        // Parse retry delay from error if available, default to 65 seconds
+        const retryDelay = 65000;
+        console.log(`Rate limited. Waiting ${retryDelay/1000}s before retry ${attempt + 1}...`);
+        await new Promise(r => setTimeout(r, retryDelay));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 async function startServer() {
   const app = express();
   app.set('trust proxy', 1);
@@ -30,7 +71,8 @@ async function startServer() {
     res.json({
         used: dailyTokenUsage,
         limit: TOKEN_LIMIT,
-        percentRemaining: Math.max(0, 100 - (dailyTokenUsage / TOKEN_LIMIT * 100))
+        percentRemaining: Math.max(0, 100 - (dailyTokenUsage / TOKEN_LIMIT * 100)),
+        model: MODEL
     });
   });
 
@@ -45,53 +87,70 @@ async function startServer() {
   });
 
   // API Route to process audio and summarize
-  app.post('/api/process-audio', upload.single('audio'), async (req, res) => {
-    try {
-      const audioFile = req.file;
+  app.post('/api/process-audio', upload.single('audio'), (req, res) => {
+    const task = async () => {
+      try {
+        const audioFile = req.file;
 
-      if (!audioFile) {
-        return res.status(400).json({ error: 'No audio file provided' });
-      }
-
-      const geminiApiKey = process.env.GEMINI_API_KEY;
-      if (!geminiApiKey) {
-        return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server' });
-      }
-
-      const ai = new GoogleGenAI({ apiKey: geminiApiKey, httpOptions: { headers: { 'User-Agent': 'aistudio-build' } } });
-
-      const audioPart = {
-        inlineData: {
-          mimeType: audioFile.mimetype,
-          data: audioFile.buffer.toString('base64')
+        if (!audioFile) {
+          return res.status(400).json({ error: 'No audio file provided' });
         }
-      };
 
-      const prompt = `You are a helpful study assistant. Listen to this lecture segment and create detailed, structured notes. Focus on Key concepts and definitions, important examples. Format the response cleanly without markdown wrappers so it's ready for block layout. Provide clear paragraphs.`;
-
-      const geminiResponse = await ai.models.generateContent({
-        model: 'gemini-3.1-flash',
-        contents: [audioPart, prompt],
-        config: {
-          temperature: 0.2, // Low temperature for factual notes
+        const geminiApiKey = process.env.GEMINI_API_KEY;
+        if (!geminiApiKey) {
+          return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server' });
         }
-      });
 
-      if (geminiResponse.usageMetadata?.totalTokenCount) {
-         dailyTokenUsage += geminiResponse.usageMetadata.totalTokenCount;
+        const ai = new GoogleGenAI({ apiKey: geminiApiKey, httpOptions: { headers: { 'User-Agent': 'aistudio-build' } } });
+
+        const audioPart = {
+          inlineData: {
+            mimeType: audioFile.mimetype,
+            data: audioFile.buffer.toString('base64')
+          }
+        };
+
+        const prompt = `You are a helpful study assistant. Listen to this lecture segment and create detailed, structured notes. Focus on Key concepts and definitions, important examples. Format the response cleanly without markdown wrappers so it's ready for block layout. Provide clear paragraphs.`;
+
+        const geminiResponse = await generateWithRetry(ai, {
+          model: MODEL,
+          contents: [audioPart, prompt],
+          config: {
+            temperature: 0.2, // Low temperature for factual notes
+          }
+        });
+
+        if (geminiResponse.usageMetadata?.totalTokenCount) {
+           dailyTokenUsage += geminiResponse.usageMetadata.totalTokenCount;
+        }
+
+        const summaryText = geminiResponse.text;
+
+        if (!summaryText) {
+          return res.status(500).json({ error: 'Gemini returned an empty summary' });
+        }
+
+        res.status(200).json({ success: true, summary: summaryText });
+      } catch (error: any) {
+        const is429 = error?.status === 429 || 
+                      error?.message?.includes('RESOURCE_EXHAUSTED');
+        
+        if (is429) {
+          return res.status(429).json({ 
+            error: 'Rate limit reached. Please wait 60 seconds and try again.',
+            retryAfter: 60
+          });
+        }
+        
+        console.error('Error processing audio:', error);
+        if (!res.headersSent) {
+          res.status(500).json({ error: error.message || 'Internal Server Error' });
+        }
       }
-
-      const summaryText = geminiResponse.text;
-
-      if (!summaryText) {
-        return res.status(500).json({ error: 'Gemini returned an empty summary' });
-      }
-
-      res.status(200).json({ success: true, summary: summaryText });
-    } catch (error: any) {
-      console.error('Error processing audio:', error);
-      res.status(500).json({ error: error.message || 'Internal Server Error' });
-    }
+    };
+    
+    audioQueue.push(task);
+    processQueue();
   });
 
   // API Route to save notes to Notion
