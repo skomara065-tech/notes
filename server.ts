@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import cors from 'cors';
@@ -11,10 +12,10 @@ const imageCache = new Map<string, Buffer>();
 let dailyTokenUsage = 0;
 const TOKEN_LIMIT = 1500000;
 
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite';
+const MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 
 // Simple request queue to avoid rate limits
-const audioQueue: Array<() => Promise<void>> = [];
+const audioQueue: Array<() => Promise<any>> = [];
 let isProcessingQueue = false;
 
 async function processQueue() {
@@ -93,6 +94,10 @@ async function startServer() {
 
   // API Route to process audio and summarize
   app.post('/api/process-audio', upload.single('audio'), (req, res) => {
+    
+    // ADD THIS LINE RIGHT HERE:
+    console.log(`\n🟢 [${new Date().toLocaleTimeString()}] AUDIO RECEIVED! Size: ${req?.file?.size} bytes`);
+    
     const task = async () => {
       try {
         const audioFile = req.file;
@@ -102,7 +107,7 @@ async function startServer() {
         }
 
         // Use environment variable for GEMINI_API_KEY
-const geminiApiKey = process.env.GEMINI_API_KEY;
+        const geminiApiKey = process.env.GEMINI_API_KEY;
 
 if (!geminiApiKey) {
   return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server' });
